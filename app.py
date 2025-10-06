@@ -13,7 +13,57 @@ st.set_page_config(page_title="Form 26AS TDS Summarizer", page_icon="🧾", layo
 
 # Title and description
 st.title("🧾 Form 26AS TDS Summarizer Utility")
-st.markdown("Upload your **Form 26AS PDF** to automatically generate section-wise and party-wise TDS summaries.")
+st.markdown("Upload your **Form 26AS PDF** to automatically generate section-wise TDS summary.")
+
+# Comprehensive section mapping from Form 26AS
+SECTION_DESCRIPTIONS = {
+    '192': 'Salary',
+    '192A': 'TDS on PF withdrawal',
+    '193': 'Interest on Securities',
+    '194': 'Dividends',
+    '194A': 'Interest other than Interest on securities',
+    '194B': 'Winning from lottery or crossword puzzle',
+    '194BA': 'Winnings from online games',
+    '194BB': 'Winning from horse race',
+    '194C': 'Payments to contractors and sub-contractors',
+    '194D': 'Insurance commission',
+    '194DA': 'Payment in respect of life insurance policy',
+    '194E': 'Payments to non-resident sportsmen or sports associations',
+    '194EE': 'Payments in respect of deposits under National Savings Scheme',
+    '194F': 'Payments on account of repurchase of units by Mutual Fund',
+    '194G': 'Commission, price, etc. on sale of lottery tickets',
+    '194H': 'Commission or brokerage',
+    '194I(a)': 'Rent on hiring of plant and machinery',
+    '194I(b)': 'Rent on other than plant and machinery',
+    '194IA': 'TDS on Sale of immovable property',
+    '194IB': 'Payment of rent by certain individuals or Hindu undivided family',
+    '194IC': 'Payment under specified agreement',
+    '194J(a)': 'Fees for technical services',
+    '194J(b)': 'Fees for professional services or royalty',
+    '194JA': 'Fees for technical services',
+    '194JB': 'Fees for professional services or royalty',
+    '194K': 'Income payable to a resident in respect of units',
+    '194LA': 'Payment of compensation on acquisition of immovable property',
+    '194LB': 'Income by way of Interest from Infrastructure Debt fund',
+    '194LC': 'Income from infrastructure debt fund',
+    '194LBA': 'Certain income from units of a business trust',
+    '194LBB': 'Income in respect of units of investment fund',
+    '194LBC': 'Income in respect of investment in securitization trust',
+    '194LD': 'TDS on interest on bonds / government securities',
+    '194M': 'Payment of certain sums by certain individuals or HUF',
+    '194N': 'Payment of certain amounts in cash',
+    '194O': 'Payment of certain sums by e-commerce operator',
+    '194P': 'Deduction of tax in case of specified senior citizen',
+    '194Q': 'Deduction of tax on payment for purchase of goods',
+    '194R': 'Benefits or perquisites of business or profession',
+    '194S': 'Payment for transfer of virtual digital asset',
+    '195': 'Other sums payable to a non-resident',
+    '196A': 'Income in respect of units of non-residents',
+    '196B': 'Payments in respect of units to an offshore fund',
+    '196C': 'Income from foreign currency bonds or shares',
+    '196D': 'Income of foreign institutional investors from securities',
+    '196DA': 'Income of specified fund from securities'
+}
 
 # Function to extract text from PDF
 def extract_text_from_pdf(pdf_path):
@@ -23,14 +73,11 @@ def extract_text_from_pdf(pdf_path):
     try:
         with pdfplumber.open(pdf_path) as pdf:
             for page_num, page in enumerate(pdf.pages):
-                # Try text extraction first
                 text = page.extract_text()
                 
-                # If no text found (image-based page), use OCR
                 if not text or len(text.strip()) < 50:
                     st.info(f"Page {page_num + 1}: Using OCR (image-based page detected)")
                     try:
-                        # Convert specific page to image
                         images = convert_from_path(pdf_path, first_page=page_num+1, last_page=page_num+1)
                         if images:
                             text = pytesseract.image_to_string(images[0])
@@ -49,146 +96,142 @@ def extract_text_from_pdf(pdf_path):
             st.error(f"❌ Error reading PDF: {str(e)}")
         return None
 
-# Function to parse TDS data from extracted text
-def parse_tds_data(text):
-    """Parse TDS data from Form 26AS text"""
+# Function to normalize section names
+def normalize_section(section_raw):
+    """Normalize section names to standard format"""
+    section = section_raw.upper().strip()
     
-    # Initialize data structures
-    section_data = {}
-    party_data = {}
+    # Handle variations with parentheses and without
+    # 1941(a) -> 194I(a), 1941(b) -> 194I(b)
+    section = re.sub(r'1941\(A\)', '194I(a)', section, flags=re.IGNORECASE)
+    section = re.sub(r'1941\(B\)', '194I(b)', section, flags=re.IGNORECASE)
     
-    # Common TDS sections in Form 26AS
-    tds_sections = ['194A', '194C', '194J', '194H', '194I', '194IA', '194IB', '194M', '192', '193', '194', '194D']
+    # Handle without parentheses: 194Ia -> 194I(a), 194Ib -> 194I(b)
+    section = re.sub(r'194IA\b', '194I(a)', section, flags=re.IGNORECASE)
+    section = re.sub(r'194IB\b', '194I(b)', section, flags=re.IGNORECASE)
     
-    # Split text into lines
+    # Handle 194J variations
+    section = re.sub(r'194J\(A\)', '194J(a)', section, flags=re.IGNORECASE)
+    section = re.sub(r'194J\(B\)', '194J(b)', section, flags=re.IGNORECASE)
+    section = re.sub(r'194JA\b', '194J(a)', section, flags=re.IGNORECASE)
+    section = re.sub(r'194JB\b', '194J(b)', section, flags=re.IGNORECASE)
+    
+    # Handle 194LC variations
+    section = re.sub(r'194LC\(2\)\(I\)', '194LC(2)(i)', section, flags=re.IGNORECASE)
+    section = re.sub(r'194LC\(2\)\(IA\)', '194LC(2)(ia)', section, flags=re.IGNORECASE)
+    section = re.sub(r'194LC\(2\)\(IB\)', '194LC(2)(ib)', section, flags=re.IGNORECASE)
+    section = re.sub(r'194LC\(2\)\(IC\)', '194LC(2)(ic)', section, flags=re.IGNORECASE)
+    
+    return section
+
+# Function to parse TDS data from Form 26AS - SECTION-WISE ONLY
+def parse_form_26as_sectionwise(text):
+    """Parse Form 26AS and extract ONLY section-wise TDS summary, ignoring negative values"""
+    
+    section_summary = {}
     lines = text.split('\n')
     
-    current_party = None
-    current_tan = None
-    current_section = None
+    in_tds_section = False
     
-    for i, line in enumerate(lines):
-        # Look for TDS section patterns (e.g., "Section 194A", "194J", etc.)
-        for section in tds_sections:
-            if re.search(rf'\b{section}\b', line, re.IGNORECASE):
-                current_section = section
-                break
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
         
-        # Look for TAN pattern (e.g., "DELC12345F")
-        tan_match = re.search(r'\b[A-Z]{4}\d{5}[A-Z]\b', line)
-        if tan_match:
-            current_tan = tan_match.group()
+        # Detect if we're in PART-I (TDS section)
+        if re.search(r'PART[- ]?I\b', line, re.IGNORECASE):
+            in_tds_section = True
         
-        # Look for party/deductor name (typically appears before TAN)
-        if current_tan and i > 0:
-            potential_name = lines[i-1].strip()
-            if len(potential_name) > 3 and not re.search(r'\d{2}/\d{2}/\d{4}', potential_name):
-                current_party = potential_name
+        # Detect end of TDS section
+        if re.search(r'PART[- ]?II\b', line, re.IGNORECASE):
+            in_tds_section = False
         
-        # Extract monetary values (amounts in Indian format)
-        amounts = re.findall(r'₹?\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)', line)
+        # COMPREHENSIVE REGEX PATTERN for ALL TDS sections
+        # Matches: 192, 192A, 193, 194, 194A through 194S, 195, 196A-196DA, 206CA-206CQ, etc.
+        section_pattern = r'^(\d+)\s+(' \
+                         r'192A?|193|194[A-Z]*(?:\([a-z]\))?|1941?\([ab]\)|' \
+                         r'195|196[A-Z]*|' \
+                         r'206C[A-Z]|' \
+                         r')\s+'
         
-        if amounts and current_section:
-            # Convert amounts to float - FIX: Handle empty strings and validation
-            clean_amounts = []
-            for amt in amounts:
-                try:
-                    # Remove commas and strip whitespace
-                    cleaned = amt.replace(',', '').strip()
-                    # Only convert if string is not empty and contains digits
-                    if cleaned and cleaned.replace('.', '').isdigit():
-                        clean_amounts.append(float(cleaned))
-                except (ValueError, AttributeError):
-                    # Skip invalid amounts
-                    continue
+        section_match = re.match(section_pattern, line, re.IGNORECASE)
+        
+        if section_match and in_tds_section:
+            section_raw = section_match.group(2)
+            section = normalize_section(section_raw)
             
-            # Heuristic: typically Gross Receipt, TDS Deducted, TDS Deposited appear in sequence
-            if len(clean_amounts) >= 3:
-                gross_receipt = clean_amounts[0]
-                tds_deducted = clean_amounts[1]
-                tds_deposited = clean_amounts[2] if len(clean_amounts) > 2 else clean_amounts[1]
-                
-                # Update section-wise data
-                if current_section not in section_data:
-                    section_data[current_section] = {
-                        'gross_receipts': 0,
-                        'tds_deducted': 0,
-                        'tds_deposited': 0
-                    }
-                
-                section_data[current_section]['gross_receipts'] += gross_receipt
-                section_data[current_section]['tds_deducted'] += tds_deducted
-                section_data[current_section]['tds_deposited'] += tds_deposited
-                
-                # Update party-wise data
-                if current_party and current_tan:
-                    party_key = f"{current_party}_{current_tan}"
+            # Extract all amounts from the line (including potential negatives)
+            amounts = re.findall(r'(-?[\d,]+\.\d{2})', line)
+            
+            if len(amounts) >= 3:
+                try:
+                    # Last 3 amounts are: Amount Paid/Credited, Tax Deducted, TDS Deposited
+                    receipt_amount = float(amounts[-3].replace(',', ''))
+                    tds_amount = float(amounts[-1].replace(',', ''))
                     
-                    if party_key not in party_data:
-                        party_data[party_key] = {
-                            'name': current_party,
-                            'tan': current_tan,
-                            'gross_receipts': 0,
-                            'tds_deducted': 0,
-                            'tds_deposited': 0,
-                            'section_breakdown': {}
+                    # RULE 1: Ignore negative figures
+                    if receipt_amount < 0 or tds_amount < 0:
+                        i += 1
+                        continue
+                    
+                    # Update global section summary
+                    if section not in section_summary:
+                        section_summary[section] = {
+                            'total_receipts': 0,
+                            'total_tds': 0,
+                            'transaction_count': 0
                         }
                     
-                    party_data[party_key]['gross_receipts'] += gross_receipt
-                    party_data[party_key]['tds_deducted'] += tds_deducted
-                    party_data[party_key]['tds_deposited'] += tds_deposited
+                    section_summary[section]['total_receipts'] += receipt_amount
+                    section_summary[section]['total_tds'] += tds_amount
+                    section_summary[section]['transaction_count'] += 1
                     
-                    # Section breakdown for party
-                    if current_section not in party_data[party_key]['section_breakdown']:
-                        party_data[party_key]['section_breakdown'][current_section] = 0
-                    party_data[party_key]['section_breakdown'][current_section] += tds_deducted
-    
-    return section_data, party_data
-
-# Function to create DataFrames
-def create_dataframes(section_data, party_data):
-    """Convert parsed data to pandas DataFrames"""
-    
-    # Section-wise DataFrame
-    section_rows = []
-    for section, data in section_data.items():
-        section_rows.append({
-            'Section': f'TDS {section}',
-            'Total Gross Receipts (₹)': f"{data['gross_receipts']:,.2f}",
-            'Total TDS Deducted (₹)': f"{data['tds_deducted']:,.2f}",
-            'Total TDS Deposited (₹)': f"{data['tds_deposited']:,.2f}"
-        })
-    
-    df_section = pd.DataFrame(section_rows)
-    
-    # Party-wise DataFrame
-    party_rows = []
-    for party_key, data in party_data.items():
-        # Create section breakdown string
-        breakdown = ', '.join([f"TDS {sec} – ₹{amt:,.2f}" 
-                               for sec, amt in data['section_breakdown'].items()])
+                except (ValueError, IndexError):
+                    pass
         
-        party_rows.append({
-            'Party Name': data['name'],
-            'TAN': data['tan'],
-            'Total Gross Receipts (₹)': f"{data['gross_receipts']:,.2f}",
-            'Total TDS Deducted (₹)': f"{data['tds_deducted']:,.2f}",
-            'Total TDS Deposited (₹)': f"{data['tds_deposited']:,.2f}",
-            'TDS Breakdown by Section': breakdown
-        })
+        i += 1
     
-    df_party = pd.DataFrame(party_rows)
-    
-    return df_section, df_party
+    return section_summary
 
-# Function to create Excel file
-def create_excel(df_section, df_party):
-    """Create Excel file with two sheets"""
+# Function to create Excel with ONLY section-wise summary
+def create_excel_report(section_summary):
+    """Create Excel file with ONLY Section-wise Summary"""
     output = BytesIO()
     
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_section.to_excel(writer, sheet_name='Section Wise', index=False)
-        df_party.to_excel(writer, sheet_name='Party Wise', index=False)
+        # ONLY TABLE: SECTION-WISE SUMMARY
+        section_data = []
+        for idx, (section, data) in enumerate(sorted(section_summary.items()), 1):
+            # Get description from mapping
+            description = SECTION_DESCRIPTIONS.get(section, 'Description not available')
+            
+            section_data.append({
+                'Sr. No.': idx,
+                'TDS Section': section,
+                'Description': description,
+                'Total Receipts': data['total_receipts'],
+                'Total TDS Deposited': data['total_tds'],
+                'Transaction Count': data['transaction_count']
+            })
+        
+        df_section = pd.DataFrame(section_data)
+        df_section.to_excel(writer, sheet_name='Section-wise Summary', index=False)
+        
+        # Format the sheet
+        workbook = writer.book
+        section_sheet = writer.sheets['Section-wise Summary']
+        
+        # Auto-adjust column widths
+        for column in section_sheet.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 60)
+            section_sheet.column_dimensions[column_letter].width = adjusted_width
     
     output.seek(0)
     return output
@@ -210,51 +253,63 @@ if uploaded_file:
             if extracted_text:
                 st.success("✅ PDF text extracted successfully!")
                 
-                # Show extracted text preview (optional debug)
+                # Show extracted text preview
                 with st.expander("🔍 View Extracted Text Preview"):
-                    st.text(extracted_text[:2000] + "..." if len(extracted_text) > 2000 else extracted_text)
+                    st.text(extracted_text[:3000] + "..." if len(extracted_text) > 3000 else extracted_text)
                 
-                # Parse TDS data
-                with st.spinner("🧮 Parsing TDS data..."):
-                    section_data, party_data = parse_tds_data(extracted_text)
+                # Parse Form 26AS - SECTION-WISE ONLY
+                with st.spinner("🧮 Parsing TDS data (ignoring negative figures)..."):
+                    section_summary = parse_form_26as_sectionwise(extracted_text)
                 
-                if section_data or party_data:
-                    # Create DataFrames
-                    df_section, df_party = create_dataframes(section_data, party_data)
+                if section_summary:
+                    st.success(f"✅ Found {len(section_summary)} TDS sections!")
                     
-                    # Display section-wise summary
+                    # Display Section-wise Summary
                     st.subheader("📊 Section-wise TDS Summary")
-                    if not df_section.empty:
-                        st.dataframe(df_section, use_container_width=True)
-                    else:
-                        st.warning("No section-wise data found.")
+                    section_data = []
+                    total_receipts = 0
+                    total_tds = 0
+                    total_transactions = 0
                     
-                    # Display party-wise summary
-                    st.subheader("👥 Party-wise TDS Summary")
-                    if not df_party.empty:
-                        st.dataframe(df_party, use_container_width=True)
-                    else:
-                        st.warning("No party-wise data found.")
+                    for idx, (section, data) in enumerate(sorted(section_summary.items()), 1):
+                        description = SECTION_DESCRIPTIONS.get(section, 'Description not available')
+                        section_data.append({
+                            'Sr. No.': idx,
+                            'TDS Section': section,
+                            'Description': description,
+                            'Total Receipts': f"₹{data['total_receipts']:,.2f}",
+                            'Total TDS Deposited': f"₹{data['total_tds']:,.2f}",
+                            'Transaction Count': data['transaction_count']
+                        })
+                        total_receipts += data['total_receipts']
+                        total_tds += data['total_tds']
+                        total_transactions += data['transaction_count']
                     
-                    # Console output
-                    print("\n=== SECTION-WISE SUMMARY ===")
-                    print(df_section.to_string(index=False))
-                    print("\n=== PARTY-WISE SUMMARY ===")
-                    print(df_party.to_string(index=False))
+                    df_section = pd.DataFrame(section_data)
+                    st.dataframe(df_section, use_container_width=True)
                     
-                    # Download Excel button
-                    if not df_section.empty or not df_party.empty:
-                        excel_file = create_excel(df_section, df_party)
-                        st.download_button(
-                            label="📥 Download Excel Report",
-                            data=excel_file,
-                            file_name="Form_26AS_TDS_Summary.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        )
+                    # Display totals
+                    st.markdown("---")
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Total Receipts", f"₹{total_receipts:,.2f}")
+                    with col2:
+                        st.metric("Total TDS Deposited", f"₹{total_tds:,.2f}")
+                    with col3:
+                        st.metric("Total Transactions", total_transactions)
+                    
+                    # Create and offer Excel download
+                    excel_file = create_excel_report(section_summary)
+                    st.download_button(
+                        label="📥 Download Excel Report",
+                        data=excel_file,
+                        file_name="Form_26AS_Section_Summary.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
                 else:
                     st.error("❌ Could not parse TDS data from the PDF. Please check if this is a valid Form 26AS PDF.")
             else:
-                st.error("❌ Failed to extract text from PDF. Please check PDF quality and try again.")
+                st.error("❌ Failed to extract text from PDF.")
         
         except Exception as e:
             st.error(f"❌ An error occurred: {str(e)}")
@@ -267,5 +322,7 @@ if uploaded_file:
 
 # Footer
 st.markdown("---")
-st.markdown("**Note:** Ensure Tesseract OCR and Poppler are installed on macOS via Homebrew:")
-st.code("brew install tesseract poppler", language="bash")
+st.markdown("**Supported Sections:** 192-196DA (All standard TDS sections)")
+st.markdown("**Note:** Ensure Tesseract OCR and Poppler are installed:")
+st.code("brew install tesseract poppler  # macOS", language="bash")
+st.markdown("**Rules Applied:** ✅ Negative figures ignored | ✅ Section-wise summary only")
