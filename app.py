@@ -2,6 +2,7 @@ import streamlit as st
 import pdfplumber
 from pdf2image import convert_from_path
 import pytesseract
+pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
 import pandas as pd
 import re
 from io import BytesIO
